@@ -1,0 +1,28 @@
+record_id,machine_id,date,shift,anomaly_type,severity,description,dataset_notice
+20260121-B-M-01,M-01,2026-01-21,B,downtime_spike,high,Unusually high machine downtime,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260131-A-M-02,M-02,2026-01-31,A,defect_surge,high,Defect rate increased significantly,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260210-C-M-04,M-04,2026-02-10,C,production_drop,high,Sudden reduction in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260222-A-M-06,M-06,2026-02-22,A,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260222-B-M-06,M-06,2026-02-22,B,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260222-C-M-06,M-06,2026-02-22,C,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260223-A-M-06,M-06,2026-02-23,A,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260223-B-M-06,M-06,2026-02-23,B,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260223-C-M-06,M-06,2026-02-23,C,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260224-A-M-06,M-06,2026-02-24,A,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260224-B-M-06,M-06,2026-02-24,B,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260224-C-M-06,M-06,2026-02-24,C,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260225-A-M-06,M-06,2026-02-25,A,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260225-B-M-06,M-06,2026-02-25,B,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260225-C-M-06,M-06,2026-02-25,C,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260226-A-M-06,M-06,2026-02-26,A,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260226-B-M-06,M-06,2026-02-26,B,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260226-C-M-06,M-06,2026-02-26,C,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260227-A-M-06,M-06,2026-02-27,A,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260227-B-M-06,M-06,2026-02-27,B,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260227-C-M-06,M-06,2026-02-27,C,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260228-A-M-06,M-06,2026-02-28,A,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260228-B-M-06,M-06,2026-02-28,B,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260228-C-M-06,M-06,2026-02-28,C,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260301-A-M-06,M-06,2026-03-01,A,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260301-B-M-06,M-06,2026-03-01,B,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+20260301-C-M-06,M-06,2026-03-01,C,gradual_deterioration,medium,Gradual decline in production output,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS

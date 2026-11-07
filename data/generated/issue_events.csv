@@ -1,0 +1,5 @@
+issue_id,machine_id,date,shift,event_type,description,status,dataset_notice
+ISS-001,M-01,2026-01-21,B,downtime_spike,Unusually high machine downtime,OPEN,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+ISS-002,M-02,2026-01-31,A,defect_surge,Defect rate increased significantly,OPEN,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+ISS-003,M-04,2026-02-10,C,production_drop,Sudden reduction in production output,OPEN,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
+ISS-004,M-06,2026-02-22,A,gradual_deterioration,Gradual decline in production output,OPEN,SYNTHETIC DATA - SIMULATED MANUFACTURING SCENARIOS
