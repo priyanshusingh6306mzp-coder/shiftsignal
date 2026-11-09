@@ -1,6 +1,6 @@
 // frontend/src/App.jsx
-import React, { useState, useEffect } from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { api } from './api';
 import { Overview } from './components/Overview';
 import { Handover } from './components/Handover';
@@ -10,18 +10,14 @@ function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [overview, setOverview] = useState(null);
   const [issues, setIssues] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState('');
   const [backendDown, setBackendDown] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // Handover state
   const [targetDate, setTargetDate] = useState('2026-02-27');
   const [targetShift, setTargetShift] = useState('B');
   const [handoverData, setHandoverData] = useState(null);
   const [handoverLoading, setHandoverLoading] = useState(false);
-
-  // Filter pass-through state for navigation
   const [issueFilters, setIssueFilters] = useState({ status: 'ALL', machine: 'ALL' });
 
   const showToast = (msg) => {
@@ -29,52 +25,69 @@ function App() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      const [oRes, iRes] = await Promise.all([
-        api.get('/api/overview'),
-        api.get('/api/issues')
-      ]);
+      const [oRes, iRes] = await Promise.all([api.get('/api/overview'), api.get('/api/issues')]);
       setOverview(oRes.data);
       setIssues(iRes.data);
       setLastUpdated(new Date().toLocaleTimeString());
       setBackendDown(false);
-      setLoading(false);
-    } catch (err) {
-      console.error(err);
+    } catch {
       setBackendDown(true);
-      setLoading(false);
     }
-  };
+  }, []);
 
-  const loadHandover = async (d, s) => {
+  const loadHandover = useCallback(async (d, s) => {
     setHandoverLoading(true);
     try {
       const res = await api.get(`/api/handover/structured?date=${d}&shift=${s}`);
       setHandoverData(res.data);
-    } catch (err) {
-      console.error(err);
-      showToast("Failed to fetch shift handover");
+    } catch {
+      showToast('Failed to fetch shift handover data');
     } finally {
       setHandoverLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadData();
-    const timer = setInterval(loadData, 30000);
-    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
-    loadHandover(targetDate, targetShift);
+    let active = true;
+    const fetchAll = async () => {
+      try {
+        const [oRes, iRes] = await Promise.all([api.get('/api/overview'), api.get('/api/issues')]);
+        if (active) {
+          setOverview(oRes.data);
+          setIssues(iRes.data);
+          setLastUpdated(new Date().toLocaleTimeString());
+          setBackendDown(false);
+        }
+      } catch {
+        if (active) setBackendDown(true);
+      }
+    };
+    fetchAll();
+    const timer = setInterval(fetchAll, 30000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const fetchH = async () => {
+      setHandoverLoading(true);
+      try {
+        const res = await api.get(`/api/handover/structured?date=${targetDate}&shift=${targetShift}`);
+        if (active) setHandoverData(res.data);
+      } catch {
+        if (active) showToast('Failed to fetch shift handover data');
+      } finally {
+        if (active) setHandoverLoading(false);
+      }
+    };
+    fetchH();
+    return () => { active = false; };
   }, [targetDate, targetShift]);
 
-  // Optimistic UI updates
-  const handleUpdateStatus = async (issueId, newStatus, notes = "") => {
+  const handleUpdateStatus = async (issueId, newStatus, notes = '') => {
     const previousIssues = [...issues];
-
-    // Apply optimistic update immediately
     setIssues(prev => prev.map(iss => {
       if (iss.issue_id === issueId) {
         return { ...iss, status: newStatus, supervisor_notes: notes || iss.supervisor_notes };
@@ -87,12 +100,10 @@ function App() {
         status: newStatus,
         supervisor_notes: notes || `Updated to ${newStatus}`
       });
-      showToast(`Issue #${issueId} marked as ${newStatus}`);
+      showToast(`Issue #${issueId} marked as ${newStatus.toLowerCase()}`);
       loadData();
       loadHandover(targetDate, targetShift);
-    } catch (err) {
-      console.error(err);
-      // Rollback on failure
+    } catch {
       setIssues(previousIssues);
       showToast(`Failed to update issue #${issueId}. Rollback applied.`);
     }
@@ -103,68 +114,50 @@ function App() {
     setActiveTab('issues');
   };
 
-  const openCount = issues.filter(i => i.status === 'OPEN').length;
+  const unresolvedCount = issues.filter(i => i.status === 'OPEN' || i.status === 'ACKNOWLEDGED').length;
 
   return (
-    <div style={{ minHeight: '100vh', padding: '24px 32px' }}>
-      
-      {/* Toast Notification */}
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 20, right: 20, backgroundColor: 'var(--accent-blue)', color: '#fff', padding: '10px 18px', borderRadius: '8px', zIndex: 2000, boxShadow: '0 4px 16px rgba(0,0,0,0.5)', fontSize: '13px' }}>
-          {toast}
-        </div>
-      )}
+    <div className="app-container">
+      {toast && <div className="toast-notice">{toast}</div>}
 
-      {/* Backend Error Banner */}
       {backendDown && (
-        <div style={{ backgroundColor: 'var(--status-open-bg)', border: '1px solid var(--status-open-border)', color: '#fca5a5', padding: '12px 18px', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-          <span>Cannot reach the backend at 127.0.0.1:8000. Start it with <code>uvicorn app.main:app --reload</code></span>
-          <button onClick={loadData} style={{ background: 'var(--status-open)', border: 'none', color: '#fff', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <RefreshCw size={12} /> Retry
+        <div className="backend-banner">
+          <span>
+            Cannot reach the backend at 127.0.0.1:8000. Start it with: <code>uvicorn app.main:app --reload</code>
+          </span>
+          <button type="button" onClick={loadData} className="retry-btn">
+            <RefreshCw size={12} />
+            <span>Retry</span>
           </button>
         </div>
       )}
 
-      {/* Header */}
-      <header className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '18px', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', padding: '8px', borderRadius: '8px' }}>
-            <Activity size={22} color="#fff" />
-          </div>
+      <header className="app-header no-print">
+        <div className="brand-section">
           <div>
-            <h1 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>SHIFTSIGNAL</h1>
-            <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-faint)' }}>Production Intelligence & Zero-Hallucination Shift Engine</p>
+            <h1 className="brand-title">ShiftSignal</h1>
+            <p className="brand-subtitle">Production intelligence & shift handover</p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Updated {lastUpdated || 'just now'}</span>
-          
-          <nav style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-card)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-            {['overview', 'handover', 'issues'].map(tab => (
+        <div className="header-right">
+          <span className="last-updated">Updated {lastUpdated || 'just now'}</span>
+
+          <nav className="tab-nav">
+            {[
+              { id: 'overview', label: 'Overview' },
+              { id: 'handover', label: 'Handover' },
+              { id: 'issues', label: 'Issues', badge: unresolvedCount }
+            ].map(tab => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                style={{
-                  backgroundColor: activeTab === tab ? 'var(--accent-blue)' : 'transparent',
-                  color: activeTab === tab ? '#fff' : 'var(--text-muted)',
-                  border: 'none',
-                  padding: '6px 16px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  textTransform: 'capitalize',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
               >
-                {tab}
-                {tab === 'issues' && openCount > 0 && (
-                  <span style={{ backgroundColor: 'var(--status-open)', color: '#fff', fontSize: '10px', padding: '1px 6px', borderRadius: '10px' }}>
-                    {openCount}
-                  </span>
+                <span>{tab.label}</span>
+                {tab.badge !== undefined && tab.badge > 0 && (
+                  <span className="tab-badge">{tab.badge}</span>
                 )}
               </button>
             ))}
@@ -172,37 +165,36 @@ function App() {
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main>
+      <main className="tab-content" key={activeTab}>
         {activeTab === 'overview' && (
-          <Overview 
-            overview={overview} 
-            issues={issues} 
-            onNavigateWithFilter={handleNavigateWithFilter} 
+          <Overview
+            overview={overview}
+            issues={issues}
+            onNavigateWithFilter={handleNavigateWithFilter}
+            onOpenHandover={() => setActiveTab('handover')}
           />
         )}
-
         {activeTab === 'handover' && (
-          <Handover 
-            data={handoverData} 
-            targetDate={targetDate} 
-            setTargetDate={setTargetDate} 
-            targetShift={targetShift} 
-            setTargetShift={setTargetShift} 
-            loading={handoverLoading} 
+          <Handover
+            data={handoverData}
+            targetDate={targetDate}
+            setTargetDate={setTargetDate}
+            targetShift={targetShift}
+            setTargetShift={setTargetShift}
+            loading={handoverLoading}
+            onNavigateToIssues={handleNavigateWithFilter}
           />
         )}
-
         {activeTab === 'issues' && (
-          <Issues 
-            issues={issues} 
-            onUpdateStatus={handleUpdateStatus} 
-            initialStatus={issueFilters.status} 
-            initialMachine={issueFilters.machine} 
+          <Issues
+            key={`${issueFilters.status}-${issueFilters.machine}`}
+            issues={issues}
+            onUpdateStatus={handleUpdateStatus}
+            initialStatus={issueFilters.status}
+            initialMachine={issueFilters.machine}
           />
         )}
       </main>
-
     </div>
   );
 }

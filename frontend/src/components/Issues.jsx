@@ -1,244 +1,209 @@
 // frontend/src/components/Issues.jsx
-import React, { useState, useMemo } from 'react';
-import { Search, Clock, CheckCircle2, X } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Search } from 'lucide-react';
+import { IssueDrawer } from './IssueDrawer';
+import { ResolveModal } from './ResolveModal';
+import { IssuesTable } from './IssuesTable';
+
+const SHIFT_MAP = { A: 0, B: 1, C: 2 };
+
+function getShiftOrdinal(dateStr, shiftChar) {
+  if (!dateStr) return 0;
+  const dt = new Date(dateStr);
+  const ord = Math.floor(dt.getTime() / (1000 * 60 * 60 * 24));
+  return ord * 3 + (SHIFT_MAP[shiftChar] ?? 0);
+}
 
 export function Issues({ issues = [], onUpdateStatus, initialStatus = 'ALL', initialMachine = 'ALL' }) {
   const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [machineFilter, setMachineFilter] = useState(initialMachine);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortOrder, setSortOrder] = useState('asc'); // asc / desc
+  const [groupByMachine, setGroupByMachine] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState({});
+  const [sortDirection, setSortDirection] = useState('desc');
   const [page, setPage] = useState(1);
   const pageSize = 12;
 
-  // Resolve dialog state
+  const [selectedIssue, setSelectedIssue] = useState(null);
   const [modalIssue, setModalIssue] = useState(null);
-  const [note, setNote] = useState('');
+  const [resolveNote, setResolveNote] = useState('');
+  const [menuOpenId, setMenuOpenId] = useState(null);
 
-  const statusCounts = useMemo(() => {
+  useEffect(() => {
+    const handleWindowClick = () => setMenuOpenId(null);
+    window.addEventListener('click', handleWindowClick);
+    return () => window.removeEventListener('click', handleWindowClick);
+  }, []);
+
+  const counts = useMemo(() => {
+    const open = issues.filter(i => i.status === 'OPEN').length;
+    const ack = issues.filter(i => i.status === 'ACKNOWLEDGED').length;
+    const res = issues.filter(i => i.status === 'RESOLVED').length;
     return {
       ALL: issues.length,
-      OPEN: issues.filter(i => i.status === 'OPEN').length,
-      ACKNOWLEDGED: issues.filter(i => i.status === 'ACKNOWLEDGED').length,
-      RESOLVED: issues.filter(i => i.status === 'RESOLVED').length,
+      UNRESOLVED: open + ack,
+      OPEN: open,
+      ACKNOWLEDGED: ack,
+      RESOLVED: res
     };
   }, [issues]);
 
-  const filtered = useMemo(() => {
+  const filteredIssues = useMemo(() => {
     return issues.filter(item => {
-      const matchStatus = statusFilter === 'ALL' || item.status === statusFilter;
+      let matchStatus = true;
+      if (statusFilter === 'UNRESOLVED') {
+        matchStatus = item.status === 'OPEN' || item.status === 'ACKNOWLEDGED';
+      } else if (statusFilter !== 'ALL') {
+        matchStatus = item.status === statusFilter;
+      }
+
       const matchMachine = machineFilter === 'ALL' || item.machine_id === machineFilter;
-      const matchSearch = item.machine_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.issue_id.toString().includes(searchQuery) ||
-                          (item.evidence && item.evidence.toLowerCase().includes(searchQuery.toLowerCase()));
+      const query = searchQuery.trim().toLowerCase();
+      const matchSearch = !query ||
+        item.machine_id.toLowerCase().includes(query) ||
+        String(item.issue_id).includes(query) ||
+        (item.evidence && item.evidence.toLowerCase().includes(query)) ||
+        (item.anomaly_type && item.anomaly_type.toLowerCase().includes(query));
+
       return matchStatus && matchMachine && matchSearch;
     }).sort((a, b) => {
-      const comp = a.issue_id - b.issue_id;
-      return sortOrder === 'asc' ? comp : -comp;
+      const ordA = getShiftOrdinal(a.anomaly_date, a.anomaly_shift);
+      const ordB = getShiftOrdinal(b.anomaly_date, b.anomaly_shift);
+      if (ordA !== ordB) {
+        return sortDirection === 'desc' ? ordB - ordA : ordA - ordB;
+      }
+      return sortDirection === 'desc' ? b.issue_id - a.issue_id : a.issue_id - b.issue_id;
     });
-  }, [issues, statusFilter, machineFilter, searchQuery, sortOrder]);
+  }, [issues, statusFilter, machineFilter, searchQuery, sortDirection]);
 
-  const totalPages = Math.ceil(filtered.length / pageSize) || 1;
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.ceil(filteredIssues.length / pageSize) || 1;
+  const paginatedIssues = useMemo(() => {
+    return filteredIssues.slice((page - 1) * pageSize, page * pageSize);
+  }, [filteredIssues, page, pageSize]);
+
+  const groupedData = useMemo(() => {
+    if (!groupByMachine) return [];
+    const map = {};
+    filteredIssues.forEach(iss => {
+      if (!map[iss.machine_id]) map[iss.machine_id] = [];
+      map[iss.machine_id].push(iss);
+    });
+    return Object.entries(map).map(([mId, items]) => ({
+      machineId: mId,
+      items,
+      count: items.length
+    }));
+  }, [filteredIssues, groupByMachine]);
+
+  const toggleGroup = (mId) => {
+    setExpandedGroups(prev => ({ ...prev, [mId]: !prev[mId] }));
+  };
+
+  const handleOpenResolve = (iss, e) => {
+    if (e) e.stopPropagation();
+    setModalIssue(iss);
+    setResolveNote('');
+    setMenuOpenId(null);
+  };
 
   const handleConfirmResolve = () => {
     if (!modalIssue) return;
-    onUpdateStatus(modalIssue.issue_id, 'RESOLVED', note);
+    onUpdateStatus(modalIssue.issue_id, 'RESOLVED', resolveNote);
     setModalIssue(null);
-    setNote('');
+    setResolveNote('');
   };
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '10px', overflow: 'hidden' }}>
-      
-      {/* Filter and Search Bar */}
-      <div style={{ padding: '16px 20px', backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <div style={{ position: 'relative' }}>
-            <Search size={14} color="var(--text-faint)" style={{ position: 'absolute', left: 10, top: 9 }} />
-            <input 
+    <div>
+      <div className="toolbar">
+        <div className="toolbar-left">
+          <div className="input-search-wrapper">
+            <Search size={14} color="var(--text-muted)" style={{ position: 'absolute', left: 10 }} />
+            <input
               type="text"
-              placeholder="Search by ID, machine, evidence..."
+              className="input-search"
+              placeholder="Search by ID, machine, type..."
               value={searchQuery}
-              onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
-              style={{ backgroundColor: 'var(--bg-app)', color: '#fff', border: '1px solid var(--border-subtle)', padding: '6px 12px 6px 32px', borderRadius: '6px', fontSize: '12px', width: '230px' }}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
             />
           </div>
 
           <select
+            className="select-clean"
             value={machineFilter}
-            onChange={e => { setMachineFilter(e.target.value); setPage(1); }}
-            style={{ backgroundColor: 'var(--bg-app)', color: '#fff', border: '1px solid var(--border-subtle)', padding: '6px 10px', borderRadius: '6px', fontSize: '12px' }}
+            onChange={(e) => { setMachineFilter(e.target.value); setPage(1); }}
           >
-            <option value="ALL">All Machines</option>
+            <option value="ALL">All machines</option>
             {['M-01', 'M-02', 'M-03', 'M-04', 'M-05', 'M-06'].map(m => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
 
-          <button 
-            onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-            style={{ background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
-          >
-            Sort ID: {sortOrder.toUpperCase()}
-          </button>
+          <label className="toggle-group-label">
+            <input
+              type="checkbox"
+              checked={groupByMachine}
+              onChange={(e) => setGroupByMachine(e.target.checked)}
+              style={{ accentColor: 'var(--accent)' }}
+            />
+            <span>Group by machine</span>
+          </label>
         </div>
 
-        {/* Status Chips */}
-        <div style={{ display: 'flex', gap: '6px' }}>
-          {['ALL', 'OPEN', 'ACKNOWLEDGED', 'RESOLVED'].map(st => (
+        <div className="segmented-control">
+          {[
+            { id: 'ALL', label: `All ${counts.ALL}` },
+            { id: 'UNRESOLVED', label: `Unresolved ${counts.UNRESOLVED}` },
+            { id: 'OPEN', label: `Open ${counts.OPEN}` },
+            { id: 'ACKNOWLEDGED', label: `Acknowledged ${counts.ACKNOWLEDGED}` },
+            { id: 'RESOLVED', label: `Resolved ${counts.RESOLVED}` }
+          ].map(seg => (
             <button
-              key={st}
-              onClick={() => { setStatusFilter(st); setPage(1); }}
-              style={{
-                backgroundColor: statusFilter === st ? 'var(--accent-blue)' : 'var(--bg-app)',
-                border: '1px solid var(--border-subtle)',
-                color: statusFilter === st ? '#fff' : 'var(--text-muted)',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                fontSize: '11px',
-                fontWeight: '600',
-                cursor: 'pointer'
-              }}
+              key={seg.id}
+              type="button"
+              className={`segment-btn ${statusFilter === seg.id ? 'active' : ''}`}
+              onClick={() => { setStatusFilter(seg.id); setPage(1); }}
             >
-              {st} ({statusCounts[st] ?? 0})
+              {seg.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Table */}
-      {paginated.length === 0 ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-faint)' }}>
-          No operational issues matched the selected criteria.
-        </div>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ backgroundColor: 'var(--bg-app)', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-faint)', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '12px 16px' }}>Issue ID</th>
-              <th style={{ padding: '12px 16px' }}>Asset</th>
-              <th style={{ padding: '12px 16px' }}>Date / Shift</th>
-              <th style={{ padding: '12px 16px' }}>Evidence</th>
-              <th style={{ padding: '12px 16px' }}>Status</th>
-              <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.map(iss => (
-              <tr key={iss.issue_id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
-                <td style={{ padding: '12px 16px', fontSize: '12px', color: 'var(--text-faint)' }}>#{iss.issue_id}</td>
-                <td style={{ padding: '12px 16px', fontWeight: 'bold' }}>{iss.machine_id}</td>
-                <td style={{ padding: '12px 16px', fontSize: '12px' }}>{iss.anomaly_date} (Shift {iss.anomaly_shift})</td>
-                <td style={{ padding: '12px 16px', fontSize: '12px', color: 'var(--text-muted)' }}>{iss.evidence || "-"}</td>
-                <td style={{ padding: '12px 16px' }}>
-                  <span style={{
-                    padding: '3px 8px',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    backgroundColor: iss.status === 'OPEN' ? 'var(--status-open-bg)' : iss.status === 'ACKNOWLEDGED' ? 'var(--status-ack-bg)' : 'var(--status-res-bg)',
-                    color: iss.status === 'OPEN' ? 'var(--status-open)' : iss.status === 'ACKNOWLEDGED' ? 'var(--status-ack)' : 'var(--status-res)'
-                  }}>
-                    {iss.status}
-                  </span>
-                </td>
-                <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                  <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                    {iss.status === 'OPEN' && (
-                      <button
-                        onClick={() => onUpdateStatus(iss.issue_id, 'ACKNOWLEDGED')}
-                        style={{ background: 'transparent', border: '1px solid var(--status-ack)', color: 'var(--status-ack)', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        <Clock size={11} /> Ack
-                      </button>
-                    )}
-                    {iss.status !== 'RESOLVED' && (
-                      <button
-                        onClick={() => setModalIssue(iss)}
-                        style={{ background: 'transparent', border: '1px solid var(--status-res)', color: 'var(--status-res)', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        <CheckCircle2 size={11} /> Resolve...
-                      </button>
-                    )}
-                    {iss.status === 'RESOLVED' && (
-                      <span style={{ color: 'var(--text-faint)', fontSize: '11px' }}>Archived</span>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <IssuesTable
+        groupByMachine={groupByMachine}
+        groupedData={groupedData}
+        expandedGroups={expandedGroups}
+        onToggleGroup={toggleGroup}
+        paginatedIssues={paginatedIssues}
+        totalCount={filteredIssues.length}
+        page={page}
+        pageSize={pageSize}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        sortDirection={sortDirection}
+        onToggleSort={() => setSortDirection(prev => prev === 'desc' ? 'asc' : 'desc')}
+        onSelectIssue={setSelectedIssue}
+        onUpdateStatus={onUpdateStatus}
+        onOpenResolve={handleOpenResolve}
+        menuOpenId={menuOpenId}
+        onToggleMenu={(id) => setMenuOpenId(menuOpenId === id ? null : id)}
+      />
 
-      {/* Pagination Controls */}
-      <div style={{ padding: '12px 20px', backgroundColor: 'var(--bg-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>
-          Page {page} of {totalPages} ({filtered.length} total issues)
-        </span>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button 
-            disabled={page === 1}
-            onClick={() => setPage(p => Math.max(p - 1, 1))}
-            style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border-subtle)', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', cursor: page === 1 ? 'not-allowed' : 'pointer' }}
-          >
-            Previous
-          </button>
-          <button 
-            disabled={page >= totalPages}
-            onClick={() => setPage(p => Math.min(p + 1, totalPages))}
-            style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border-subtle)', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}
-          >
-            Next
-          </button>
-        </div>
-      </div>
+      <IssueDrawer
+        issue={selectedIssue}
+        onClose={() => setSelectedIssue(null)}
+        onAcknowledge={(id) => onUpdateStatus(id, 'ACKNOWLEDGED')}
+        onResolve={(iss) => handleOpenResolve(iss)}
+      />
 
-      {/* Resolve Dialog Modal */}
-      {modalIssue && (
-        <div 
-          onClick={() => setModalIssue(null)}
-          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-        >
-          <div 
-            onClick={e => e.stopPropagation()}
-            style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-accent)', borderRadius: '10px', width: '420px', padding: '20px' }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '15px' }}>Resolve Issue #{modalIssue.issue_id} ({modalIssue.machine_id})</h3>
-              <X size={16} style={{ cursor: 'pointer' }} onClick={() => setModalIssue(null)} />
-            </div>
-
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px 0' }}>
-              Enter technician corrective notes prior to ticket archiving:
-            </p>
-
-            <textarea
-              rows={3}
-              placeholder="e.g., Calibrated spindle bearings; mechanical inspection passed."
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              style={{ width: '100%', boxSizing: 'border-box', backgroundColor: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '8px', color: '#fff', fontSize: '12px', marginBottom: '16px' }}
-            />
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button 
-                onClick={() => setModalIssue(null)}
-                style={{ background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleConfirmResolve}
-                style={{ background: 'var(--status-res)', border: 'none', color: '#fff', padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
-              >
-                Confirm Resolution
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      <ResolveModal
+        issue={modalIssue}
+        note={resolveNote}
+        onNoteChange={setResolveNote}
+        onConfirm={handleConfirmResolve}
+        onCancel={() => setModalIssue(null)}
+      />
     </div>
   );
 }

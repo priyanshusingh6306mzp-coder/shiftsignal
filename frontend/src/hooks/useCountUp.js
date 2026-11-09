@@ -1,20 +1,38 @@
 // frontend/src/hooks/useCountUp.js
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export function useCountUp(target, duration = 600) {
-  const [count, setCount] = useState(0);
+  const [count, setCount] = useState(() => {
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return target;
+    }
+    return 0;
+  });
+  const hasAnimatedRef = useRef(false);
 
   useEffect(() => {
     if (typeof target !== 'number' || isNaN(target)) {
-      setCount(target);
+      requestAnimationFrame(() => setCount(target));
       return;
     }
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setCount(target);
+      requestAnimationFrame(() => setCount(target));
+      hasAnimatedRef.current = true;
       return;
     }
 
+    if (hasAnimatedRef.current) {
+      requestAnimationFrame(() => setCount(target));
+      return;
+    }
+
+    if (target === 0) {
+      requestAnimationFrame(() => setCount(0));
+      return;
+    }
+
+    hasAnimatedRef.current = true;
     let start = 0;
     const finalValue = target;
     const stepTime = 16;
@@ -24,7 +42,7 @@ export function useCountUp(target, duration = 600) {
     let current = start;
     const timer = setInterval(() => {
       current += stepIncrement;
-      if ((stepIncrement > 0 && current >= finalValue) || (stepIncrement < 0 && current <= finalValue)) {
+      if (current >= finalValue) {
         setCount(finalValue);
         clearInterval(timer);
       } else {
