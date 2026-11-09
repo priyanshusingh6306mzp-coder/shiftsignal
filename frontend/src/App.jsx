@@ -1,321 +1,208 @@
 // frontend/src/App.jsx
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { 
-  Activity, 
-  Server, 
-  AlertTriangle, 
-  AlertCircle, 
-  List, 
-  FileText, 
-  Send, 
-  CheckCircle2, 
-  Clock, 
-  TrendingUp 
-} from 'lucide-react';
-import { 
-  ResponsiveContainer, 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  CartesianGrid 
-} from 'recharts';
+import { Activity, RefreshCw } from 'lucide-react';
+import { api } from './api';
+import { Overview } from './components/Overview';
+import { Handover } from './components/Handover';
+import { Issues } from './components/Issues';
 
 function App() {
+  const [activeTab, setActiveTab] = useState('overview');
   const [overview, setOverview] = useState(null);
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState('');
+  const [backendDown, setBackendDown] = useState(false);
+  const [toast, setToast] = useState(null);
 
-  // Handover report state
+  // Handover state
   const [targetDate, setTargetDate] = useState('2026-02-27');
   const [targetShift, setTargetShift] = useState('B');
-  const [handoverText, setHandoverText] = useState('');
-  const [reportLoading, setReportLoading] = useState(false);
+  const [handoverData, setHandoverData] = useState(null);
+  const [handoverLoading, setHandoverLoading] = useState(false);
 
-  // Centralized data fetcher
-  const loadDashboardData = async () => {
+  // Filter pass-through state for navigation
+  const [issueFilters, setIssueFilters] = useState({ status: 'ALL', machine: 'ALL' });
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const loadData = async () => {
     try {
-      const overviewRes = await axios.get('http://127.0.0.1:8000/api/overview');
-      const issuesRes = await axios.get('http://127.0.0.1:8000/api/issues');
-      
-      setOverview(overviewRes.data);
-      setIssues(issuesRes.data);
+      const [oRes, iRes] = await Promise.all([
+        api.get('/api/overview'),
+        api.get('/api/issues')
+      ]);
+      setOverview(oRes.data);
+      setIssues(iRes.data);
+      setLastUpdated(new Date().toLocaleTimeString());
+      setBackendDown(false);
       setLoading(false);
     } catch (err) {
-      console.error("API Error:", err);
-      setError("Failed to connect to FastAPI backend.");
+      console.error(err);
+      setBackendDown(true);
       setLoading(false);
+    }
+  };
+
+  const loadHandover = async (d, s) => {
+    setHandoverLoading(true);
+    try {
+      const res = await api.get(`/api/handover/structured?date=${d}&shift=${s}`);
+      setHandoverData(res.data);
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to fetch shift handover");
+    } finally {
+      setHandoverLoading(false);
     }
   };
 
   useEffect(() => {
-    loadDashboardData();
-    fetchHandover('2026-02-27', 'B');
+    loadData();
+    const timer = setInterval(loadData, 30000);
+    return () => clearInterval(timer);
   }, []);
 
-  const fetchHandover = async (date, shift) => {
-    setReportLoading(true);
-    try {
-      const res = await axios.get(`http://127.0.0.1:8000/api/handover?date=${date}&shift=${shift}`);
-      setHandoverText(res.data.handover_report);
-    } catch (err) {
-      console.error("Handover fetch error:", err);
-      setHandoverText("Failed to generate shift handover report.");
-    } finally {
-      setReportLoading(false);
-    }
-  };
+  useEffect(() => {
+    loadHandover(targetDate, targetShift);
+  }, [targetDate, targetShift]);
 
-  const handleGenerateReport = (e) => {
-    e.preventDefault();
-    fetchHandover(targetDate, targetShift);
-  };
+  // Optimistic UI updates
+  const handleUpdateStatus = async (issueId, newStatus, notes = "") => {
+    const previousIssues = [...issues];
 
-  const handleUpdateStatus = async (issueId, newStatus) => {
+    // Apply optimistic update immediately
+    setIssues(prev => prev.map(iss => {
+      if (iss.issue_id === issueId) {
+        return { ...iss, status: newStatus, supervisor_notes: notes || iss.supervisor_notes };
+      }
+      return iss;
+    }));
+
     try {
-      await axios.put(`http://127.0.0.1:8000/api/issues/${issueId}`, {
+      await api.put(`/api/issues/${issueId}`, {
         status: newStatus,
-        supervisor_notes: `Marked as ${newStatus} from ShiftSignal UI`
+        supervisor_notes: notes || `Updated to ${newStatus}`
       });
-      await loadDashboardData();
-      fetchHandover(targetDate, targetShift);
+      showToast(`Issue #${issueId} marked as ${newStatus}`);
+      loadData();
+      loadHandover(targetDate, targetShift);
     } catch (err) {
-      console.error("Failed to update status:", err);
-      alert("Failed to update status. Check backend connection.");
+      console.error(err);
+      // Rollback on failure
+      setIssues(previousIssues);
+      showToast(`Failed to update issue #${issueId}. Rollback applied.`);
     }
   };
 
-  // Derive anomaly frequency timeline for visualization
-  const trendData = React.useMemo(() => {
-    const counts = {};
-    issues.forEach(i => {
-      const d = i.anomaly_date;
-      counts[d] = (counts[d] || 0) + 1;
-    });
-    return Object.keys(counts)
-      .sort()
-      .map(date => ({
-        date: date.slice(5), // MM-DD
-        anomalies: counts[date]
-      }));
-  }, [issues]);
+  const handleNavigateWithFilter = ({ status = 'ALL', machine = 'ALL' }) => {
+    setIssueFilters({ status, machine });
+    setActiveTab('issues');
+  };
+
+  const openCount = issues.filter(i => i.status === 'OPEN').length;
 
   return (
-    <div className="dashboard-container">
-      <header className="header">
-        <h1>
-          <Activity size={24} color="#3b82f6" style={{ marginRight: '10px', verticalAlign: 'middle' }} />
-          SHIFTSIGNAL <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>| Production Intelligence</span>
-        </h1>
-      </header>
+    <div style={{ minHeight: '100vh', padding: '24px 32px' }}>
       
-      <main>
-        {loading && <p style={{ color: 'var(--text-muted)' }}>Connecting to Production Sensors...</p>}
-        {error && <p style={{ color: 'var(--status-danger)' }}>{error}</p>}
-        
-        {overview && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '25px' }}>
-            <div style={{ backgroundColor: 'var(--bg-panel)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '10px' }}>
-                <Server size={16} style={{ verticalAlign: 'text-bottom', marginRight: '5px' }}/> MONITORED MACHINES
-              </div>
-              <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{overview.total_machines}</div>
-            </div>
+      {/* Toast Notification */}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 20, right: 20, backgroundColor: 'var(--accent-blue)', color: '#fff', padding: '10px 18px', borderRadius: '8px', zIndex: 2000, boxShadow: '0 4px 16px rgba(0,0,0,0.5)', fontSize: '13px' }}>
+          {toast}
+        </div>
+      )}
 
-            <div style={{ backgroundColor: 'var(--bg-panel)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '10px' }}>
-                <AlertTriangle size={16} color="var(--status-warning)" style={{ verticalAlign: 'text-bottom', marginRight: '5px' }}/> DETECTED ANOMALIES
-              </div>
-              <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{overview.total_detected_anomalies}</div>
-            </div>
+      {/* Backend Error Banner */}
+      {backendDown && (
+        <div style={{ backgroundColor: 'var(--status-open-bg)', border: '1px solid var(--status-open-border)', color: '#fca5a5', padding: '12px 18px', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+          <span>Cannot reach the backend at 127.0.0.1:8000. Start it with <code>uvicorn app.main:app --reload</code></span>
+          <button onClick={loadData} style={{ background: 'var(--status-open)', border: 'none', color: '#fff', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <RefreshCw size={12} /> Retry
+          </button>
+        </div>
+      )}
 
-            <div style={{ backgroundColor: 'var(--bg-panel)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '10px' }}>
-                <AlertCircle size={16} color="var(--status-danger)" style={{ verticalAlign: 'text-bottom', marginRight: '5px' }}/> ACTIVE OPEN ISSUES
-              </div>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: 'var(--status-danger)' }}>{overview.active_open_issues}</div>
-            </div>
+      {/* Header */}
+      <header className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '18px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', padding: '8px', borderRadius: '8px' }}>
+            <Activity size={22} color="#fff" />
           </div>
-        )}
-
-        {/* Anomaly Trend Chart */}
-        {trendData.length > 0 && (
-          <div style={{ backgroundColor: 'var(--bg-panel)', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '25px', padding: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-              <TrendingUp size={18} color="var(--accent-blue)" />
-              <h2 style={{ fontSize: '16px' }}>Incident Timeline & Cluster Trend</h2>
-            </div>
-            <div style={{ width: '100%', height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData}>
-                  <defs>
-                    <linearGradient id="anomalyGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.6}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-                  <XAxis dataKey="date" stroke="#737373" tick={{ fontSize: 11 }} />
-                  <YAxis stroke="#737373" tick={{ fontSize: 11 }} allowDecimals={false} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#1a1a1a', borderColor: '#333333', borderRadius: '4px', fontSize: '12px' }} 
-                  />
-                  <Area type="monotone" dataKey="anomalies" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#anomalyGradient)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* Handover Report Section */}
-        <div style={{ backgroundColor: 'var(--bg-panel)', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '25px', overflow: 'hidden' }}>
-          <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--border-color)', backgroundColor: '#1a1a1a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <FileText size={18} color="var(--accent-blue)" /> Deterministic Shift Handover
-            </h2>
-            <form onSubmit={handleGenerateReport} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <input 
-                type="date" 
-                value={targetDate} 
-                onChange={(e) => setTargetDate(e.target.value)}
-                style={{ backgroundColor: '#121212', color: '#fff', border: '1px solid var(--border-color)', padding: '6px 10px', borderRadius: '4px', fontSize: '12px' }}
-              />
-              <select 
-                value={targetShift} 
-                onChange={(e) => setTargetShift(e.target.value)}
-                style={{ backgroundColor: '#121212', color: '#fff', border: '1px solid var(--border-color)', padding: '6px 10px', borderRadius: '4px', fontSize: '12px' }}
-              >
-                <option value="A">Shift A (Morning)</option>
-                <option value="B">Shift B (Evening)</option>
-                <option value="C">Shift C (Night)</option>
-              </select>
-              <button 
-                type="submit" 
-                style={{ backgroundColor: 'var(--accent-blue)', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}
-              >
-                <Send size={12} /> Generate
-              </button>
-            </form>
-          </div>
-          <div style={{ padding: '20px' }}>
-            <pre style={{ 
-              backgroundColor: '#121212', 
-              color: '#38bdf8', 
-              padding: '15px', 
-              borderRadius: '6px', 
-              fontFamily: 'Consolas, monospace', 
-              fontSize: '13px', 
-              lineHeight: '1.5',
-              whiteSpace: 'pre-wrap',
-              border: '1px solid #2a2a2a'
-            }}>
-              {reportLoading ? "Querying database facts and synthesizing handover..." : handoverText}
-            </pre>
+          <div>
+            <h1 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>SHIFTSIGNAL</h1>
+            <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-faint)' }}>Production Intelligence & Zero-Hallucination Shift Engine</p>
           </div>
         </div>
 
-        {/* Operational Issues Table */}
-        {!loading && !error && (
-          <div style={{ backgroundColor: 'var(--bg-panel)', borderRadius: '8px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-            <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--border-color)', backgroundColor: '#1a1a1a' }}>
-              <h2 style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <List size={18} color="var(--accent-blue)" /> Operational Issues & Lifecycle Management
-              </h2>
-            </div>
-            
-            <div style={{ overflowX: 'auto', maxHeight: '420px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead style={{ position: 'sticky', top: 0, backgroundColor: '#1a1a1a', zIndex: 1 }}>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '12px', textTransform: 'uppercase' }}>
-                    <th style={{ padding: '15px 20px' }}>Issue ID</th>
-                    <th style={{ padding: '15px 20px' }}>Machine</th>
-                    <th style={{ padding: '15px 20px' }}>Anomaly Type</th>
-                    <th style={{ padding: '15px 20px' }}>Date / Shift</th>
-                    <th style={{ padding: '15px 20px' }}>Status</th>
-                    <th style={{ padding: '15px 20px' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {issues.map((issue) => (
-                    <tr key={issue.issue_id} style={{ borderBottom: '1px solid #2a2a2a' }}>
-                      <td style={{ padding: '15px 20px' }}>#{issue.issue_id}</td>
-                      <td style={{ padding: '15px 20px', fontWeight: 'bold' }}>{issue.machine_id}</td>
-                      <td style={{ padding: '15px 20px' }}>{issue.anomaly_type.replace('_', ' ').toUpperCase()}</td>
-                      <td style={{ padding: '15px 20px' }}>{issue.anomaly_date} | Shift {issue.anomaly_shift}</td>
-                      <td style={{ padding: '15px 20px' }}>
-                        <span style={{ 
-                          padding: '4px 8px', 
-                          borderRadius: '4px', 
-                          fontSize: '12px', 
-                          fontWeight: 'bold',
-                          backgroundColor: 
-                            issue.status === 'OPEN' ? 'rgba(239, 68, 68, 0.2)' : 
-                            issue.status === 'ACKNOWLEDGED' ? 'rgba(245, 158, 11, 0.2)' : 
-                            'rgba(16, 185, 129, 0.2)',
-                          color: 
-                            issue.status === 'OPEN' ? 'var(--status-danger)' : 
-                            issue.status === 'ACKNOWLEDGED' ? 'var(--status-warning)' : 
-                            'var(--status-success)'
-                        }}>
-                          {issue.status}
-                        </span>
-                      </td>
-                      <td style={{ padding: '15px 20px' }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          {issue.status === 'OPEN' && (
-                            <button
-                              onClick={() => handleUpdateStatus(issue.issue_id, 'ACKNOWLEDGED')}
-                              style={{ 
-                                backgroundColor: 'transparent', 
-                                border: '1px solid var(--status-warning)', 
-                                color: 'var(--status-warning)', 
-                                padding: '4px 8px', 
-                                borderRadius: '4px', 
-                                fontSize: '11px', 
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px'
-                              }}
-                            >
-                              <Clock size={12} /> Ack
-                            </button>
-                          )}
-                          {issue.status !== 'RESOLVED' && (
-                            <button
-                              onClick={() => handleUpdateStatus(issue.issue_id, 'RESOLVED')}
-                              style={{ 
-                                backgroundColor: 'transparent', 
-                                border: '1px solid var(--status-success)', 
-                                color: 'var(--status-success)', 
-                                padding: '4px 8px', 
-                                borderRadius: '4px', 
-                                fontSize: '11px', 
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px'
-                              }}
-                            >
-                              <CheckCircle2 size={12} /> Resolve
-                            </button>
-                          )}
-                          {issue.status === 'RESOLVED' && (
-                            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Archived</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Updated {lastUpdated || 'just now'}</span>
+          
+          <nav style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-card)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+            {['overview', 'handover', 'issues'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  backgroundColor: activeTab === tab ? 'var(--accent-blue)' : 'transparent',
+                  color: activeTab === tab ? '#fff' : 'var(--text-muted)',
+                  border: 'none',
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  textTransform: 'capitalize',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {tab}
+                {tab === 'issues' && openCount > 0 && (
+                  <span style={{ backgroundColor: 'var(--status-open)', color: '#fff', fontSize: '10px', padding: '1px 6px', borderRadius: '10px' }}>
+                    {openCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main>
+        {activeTab === 'overview' && (
+          <Overview 
+            overview={overview} 
+            issues={issues} 
+            onNavigateWithFilter={handleNavigateWithFilter} 
+          />
+        )}
+
+        {activeTab === 'handover' && (
+          <Handover 
+            data={handoverData} 
+            targetDate={targetDate} 
+            setTargetDate={setTargetDate} 
+            targetShift={targetShift} 
+            setTargetShift={setTargetShift} 
+            loading={handoverLoading} 
+          />
+        )}
+
+        {activeTab === 'issues' && (
+          <Issues 
+            issues={issues} 
+            onUpdateStatus={handleUpdateStatus} 
+            initialStatus={issueFilters.status} 
+            initialMachine={issueFilters.machine} 
+          />
         )}
       </main>
+
     </div>
   );
 }
